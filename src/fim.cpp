@@ -38,6 +38,7 @@ static void print(string errorStr, ErrorLevel level) {
 
 static void printUsage() {
   cout << "\nUsage: " << endl;
+  cout << "\tfim init           -  Init the fim repository" << endl;
   cout
       << "\tfim add <pathname> -  Add the pathname to the list of files tracked"
       << endl;
@@ -65,6 +66,10 @@ static void getMD5ForFile(const char *path, char *md5) {
 }
 
 /* ------------------ File System level functions ---------- */
+
+static void getAbsPath(const char *path, char *fullPath) {
+  realpath(path, fullPath);
+}
 
 static void createDirectory(const char *path) { mkdir(path, DEFAULT_PERM); }
 
@@ -97,15 +102,25 @@ static void createFileWithContent(string fileName, string content) {
 // Creates the MD5 hash for both the filename and file contents and
 // stores the corresponding hash values as filename and file content
 // under @root directory.
-static void trackFile(const char *path) {
+
+static void trackFile(const char *path, struct stat s) {
   char md5[33];
   getMD5ForFile(path, md5);
 
   char md5ForPath[33];
   getMD5(path, md5ForPath);
 
-  // cout << "\nMD5 is : " << md5 << endl;
-  createFileWithContent(root + string(md5ForPath), md5);
+  string fileName = root + md5ForPath;
+
+  // Create the file and its contents.
+  ofstream file;
+  file.open(fileName);
+  file << s.st_mtime;
+  file << " ";
+  file << s.st_size;
+  file << " ";
+  file << md5;
+  file.close();
 }
 
 // Recursively traverse all the files and directories
@@ -117,11 +132,16 @@ static void traverseDirAndAdd(const char *path) {
   struct stat s;
   // if the path is a file, add it to the list of ignored files.
   if (stat(path, &s) == 0 && s.st_mode & S_IFREG) {
-    trackFile(path);
+    trackFile(path, s);
     return;
   }
 
   DIR *dir = opendir(path);
+  if (dir == NULL) {
+    print("Not a valid path: " + string(path), ERROR);
+    return;
+  }
+
   struct dirent *entry = readdir(dir);
 
   vector<string> pathList;
@@ -160,27 +180,79 @@ static void traverseDirAndAdd(const char *path) {
 /* Recursively add all the files in @path to the tracking list */
 static void addFiles(const char *path) { traverseDirAndAdd(path); }
 
-static bool isFileModified(const char *path) { return true; }
+static int isFileModified(const char *path, struct stat s) {
 
-static void checkFiles(const char *path, vector<string> &modifiedFiles) {
+  char md5ForPath[33];
+  getMD5(path, md5ForPath);
+
+  string filePath = root + string(md5ForPath);
+
+  // If the md5 file doesn't exist, return as new file.
+  struct stat fileStat;
+  if (lstat(filePath.c_str(), &fileStat) != 0) {
+    return 1;
+  }
+
+  // if the md5 file exists, read the file data.
+
+  ifstream read(filePath);
+
+  long mtime, size;
+  string contentmd5;
+  read >> mtime;
+  read >> size;
+  read >> contentmd5;
+
+  // File has not been modified.
+  if (mtime == s.st_mtime && size == s.st_size) {
+    return 0;
+  }
+
+  // If size is not same, file has been modified for sure.
+  if (size != s.st_size) {
+    return 2;
+  }
+
+  // now check the contents md5;
+  char md5[33];
+  getMD5ForFile(path, md5);
+
+  if (strcmp(md5, contentmd5.c_str()) == 0) {
+    return 0;
+  }
+
+  return 2;
+}
+
+static void checkFiles(const char *path, vector<string> &modifiedFiles,
+                       vector<string> &untrackedFiles) {
   if (path == NULL)
     return;
 
   struct stat s;
   // if the path is a file, add it to the list of ignored files.
   if (stat(path, &s) == 0 && s.st_mode & S_IFREG) {
-    if (isFileModified(path)) {
+    int value = isFileModified(path, s);
+
+    if (value == 2) {
       modifiedFiles.push_back(path);
+    } else if (value == 1) {
+      untrackedFiles.push_back(path);
     }
     return;
   }
 
   DIR *dir = opendir(path);
+  if (dir == NULL) {
+    return;
+  }
   struct dirent *entry = readdir(dir);
 
   vector<string> pathList;
 
   while (entry != NULL) {
+
+    // Only tracks regular files and directories.
     if (entry->d_type != DT_DIR && entry->d_type != DT_REG) {
       entry = readdir(dir);
       continue;
@@ -192,11 +264,12 @@ static void checkFiles(const char *path, vector<string> &modifiedFiles) {
       entry = readdir(dir);
       continue;
     }
+
     string pathStr = path;
-    pathStr.append(string(entry->d_name));
     if (entry->d_type == DT_DIR) {
       pathStr.append("/");
     }
+    pathStr.append(string(entry->d_name));
     pathList.push_back(pathStr);
     entry = readdir(dir);
   }
@@ -207,27 +280,43 @@ static void checkFiles(const char *path, vector<string> &modifiedFiles) {
   }
 
   for (int i = 0; i < pathList.size(); ++i) {
-    checkFiles(pathList[i].c_str(), modifiedFiles);
+    checkFiles(pathList[i].c_str(), modifiedFiles, untrackedFiles);
   }
 }
 
 static void checkStatus(const char *path) {
   vector<string> modifiedFiles;
-  checkFiles(path, modifiedFiles);
-  if (modifiedFiles.size() == 0) {
-    cout << "\nNo modified files found!\n";
-    return;
+  vector<string> untrackedFiles;
+  string final(path);
+  final.append("/");
+  checkFiles(final.c_str(), modifiedFiles, untrackedFiles);
+  const std::string red("\033[0;31m");
+  if (modifiedFiles.size() != 0) {
+    cout << "\nModified files are:";
+    for (string file : modifiedFiles) {
+      cout << "\n\t\033[1;31m" << file << "\033[0m";
+    }
+  } else {
+    cout << "\nNo modified files in the working directory";
   }
-  cout << "\nModified files are: \n";
-  for (string file : modifiedFiles) {
-    cout << "\n\t" << file;
+
+  if (untrackedFiles.size() != 0) {
+    cout << "\nNew files to be added are:";
+    for (string file : untrackedFiles) {
+      cout << "\n\t\033[1;32m" << file << "\033[0m";
+    }
+  } else {
+    cout << "\nNo untracked files in the working directory";
   }
   cout << endl;
 }
 
-static void init() { 
-    createDirectory(root.c_str()); 
-    print("Initialized empty fim repository!\n", INFO);
+static void init() {
+  char fullPath[PATH_MAX];
+  realpath(root.c_str(), fullPath);
+  createDirectory(fullPath);
+  root = fullPath;
+  print("Initialized empty fim repository!\n", INFO);
 }
 
 int main(int argc, char **argv) {
@@ -271,11 +360,9 @@ int main(int argc, char **argv) {
       exit(2);
     }
 
-    string path = argv[2];
-    if (path == ".") {
-      path += "/";
-    }
-    addFiles(path.c_str());
+    char fullPath[PATH_MAX];
+    getAbsPath(argv[2], fullPath);
+    addFiles(fullPath);
     return 0;
   }
 
@@ -289,7 +376,9 @@ int main(int argc, char **argv) {
       exit(3);
     }
 
-    checkStatus("./");
+    char fullPath[PATH_MAX];
+    getAbsPath(".", fullPath);
+    checkStatus(fullPath);
     return 0;
   }
 
