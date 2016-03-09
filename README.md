@@ -14,5 +14,5 @@ Dependencies:
 Install instructions:
 ---------------------
 1. Clone the project to a directory.
-2. run "make". On successful build, fim should be available in the newly created bin/ directory.
+2. run "make". On successful build, fim binary should be available in the newly created bin/ directory.
 
