@@ -219,7 +219,10 @@ static void traverseDirAndAdd(const char *path) {
 static void addFiles(const char *path) {
 
   string final(path);
-  final.append("/");
+  struct stat s;
+  if (stat(path, &s) == 0 && !(s.st_mode & S_IFREG)) {
+    final.append("/");
+  }
   traverseDirAndAdd(final.c_str());
 }
 
