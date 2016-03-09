@@ -216,7 +216,12 @@ static void traverseDirAndAdd(const char *path) {
 }
 
 /* Recursively add all the files in @path to the tracking list */
-static void addFiles(const char *path) { traverseDirAndAdd(path); }
+static void addFiles(const char *path) {
+
+  string final(path);
+  final.append("/");
+  traverseDirAndAdd(final.c_str());
+}
 
 static int isFileModified(const char *path, struct stat s) {
 
