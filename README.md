@@ -7,10 +7,12 @@ Currently init, add and status are the only three commands available. "fim init"
 
 
 Dependencies:
+-------------
 1. openssl: This tool uses openssl for the md5 hash impelmentation.
 
 
 Install instructions:
+---------------------
 1. Clone the project to a directory.
 2. run "make". On successful build, fim should be available in the newly created bin/ directory.
 
