@@ -266,10 +266,10 @@ static void checkFiles(const char *path, vector<string> &modifiedFiles,
     }
 
     string pathStr = path;
+    pathStr.append(string(entry->d_name));
     if (entry->d_type == DT_DIR) {
       pathStr.append("/");
     }
-    pathStr.append(string(entry->d_name));
     pathList.push_back(pathStr);
     entry = readdir(dir);
   }
@@ -294,7 +294,7 @@ static void checkStatus(const char *path) {
   if (modifiedFiles.size() != 0) {
     cout << "\nModified files are:";
     for (string file : modifiedFiles) {
-      cout << "\n\t\033[1;31m" << file << "\033[0m";
+      cout << "\n\t\033[1;31m" << file.substr(final.length()) << "\033[0m";
     }
   } else {
     cout << "\nNo modified files in the working directory";
@@ -303,7 +303,7 @@ static void checkStatus(const char *path) {
   if (untrackedFiles.size() != 0) {
     cout << "\nNew files to be added are:";
     for (string file : untrackedFiles) {
-      cout << "\n\t\033[1;32m" << file << "\033[0m";
+      cout << "\n\t\033[1;32m" << file.substr(final.length()) << "\033[0m";
     }
   } else {
     cout << "\nNo untracked files in the working directory";
