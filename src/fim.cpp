@@ -13,8 +13,11 @@
 
 using namespace std;
 
-// This is the root directory where all the details are stored under.
-static string root = "./.fim/";
+static const char *FIM_DIRECTORY = ".fim";
+static const char *FIM_IGNORE_FILE_NAME = ".fimignore";
+static string ROOT = "./.fim/";
+
+static vector<string> ignoreList;
 
 /* ------------- Logging helper functions -------------------*/
 
@@ -99,9 +102,40 @@ static void createFileWithContent(string fileName, string content) {
   file.close();
 }
 
+/* ------------------ Fim Helper functions ----------------- */
+
+// Check whether the file is in ignore list.
+static bool inIgnoreList(string path) {
+
+  if (ignoreList.empty()) {
+
+    ignoreList.push_back(FIM_DIRECTORY);
+    ifstream ignoreFile(FIM_IGNORE_FILE_NAME);
+
+    if (ignoreFile.is_open()) {
+      string line;
+
+      while (getline(ignoreFile, line)) {
+        char fullPath[PATH_MAX];
+        getAbsPath(line.c_str(), fullPath);
+        ignoreList.push_back(fullPath);
+      }
+
+      ignoreFile.close();
+    }
+  }
+
+  for (string ignorePath : ignoreList) {
+    if (ignorePath == path) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Creates the MD5 hash for both the filename and file contents and
 // stores the corresponding hash values as filename and file content
-// under @root directory.
+// under @ROOT directory.
 
 static void trackFile(const char *path, struct stat s) {
   char md5[33];
@@ -110,7 +144,7 @@ static void trackFile(const char *path, struct stat s) {
   char md5ForPath[33];
   getMD5(path, md5ForPath);
 
-  string fileName = root + md5ForPath;
+  string fileName = ROOT + md5ForPath;
 
   // Create the file and its contents.
   ofstream file;
@@ -128,6 +162,10 @@ static void trackFile(const char *path, struct stat s) {
 static void traverseDirAndAdd(const char *path) {
   if (path == NULL)
     return;
+
+  if (inIgnoreList(path)) {
+    return;
+  }
 
   struct stat s;
   // if the path is a file, add it to the list of ignored files.
@@ -185,7 +223,7 @@ static int isFileModified(const char *path, struct stat s) {
   char md5ForPath[33];
   getMD5(path, md5ForPath);
 
-  string filePath = root + string(md5ForPath);
+  string filePath = ROOT + string(md5ForPath);
 
   // If the md5 file doesn't exist, return as new file.
   struct stat fileStat;
@@ -202,6 +240,7 @@ static int isFileModified(const char *path, struct stat s) {
   read >> mtime;
   read >> size;
   read >> contentmd5;
+  read.close();
 
   // File has not been modified.
   if (mtime == s.st_mtime && size == s.st_size) {
@@ -228,6 +267,10 @@ static void checkFiles(const char *path, vector<string> &modifiedFiles,
                        vector<string> &untrackedFiles) {
   if (path == NULL)
     return;
+
+  if (inIgnoreList(path)) {
+    return;
+  }
 
   struct stat s;
   // if the path is a file, add it to the list of ignored files.
@@ -260,7 +303,7 @@ static void checkFiles(const char *path, vector<string> &modifiedFiles,
 
     if (entry->d_type == DT_DIR &&
         (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 ||
-         strcmp(entry->d_name, ".fim") == 0)) {
+         strcmp(entry->d_name, FIM_DIRECTORY) == 0)) {
       entry = readdir(dir);
       continue;
     }
@@ -292,30 +335,34 @@ static void checkStatus(const char *path) {
   checkFiles(final.c_str(), modifiedFiles, untrackedFiles);
   const std::string red("\033[0;31m");
   if (modifiedFiles.size() != 0) {
-    cout << "\nModified files are:";
+    cout << "\nModified files:\n";
     for (string file : modifiedFiles) {
       cout << "\n\t\033[1;31m" << file.substr(final.length()) << "\033[0m";
     }
+    cout << endl;
   } else {
     cout << "\nNo modified files in the working directory";
   }
 
   if (untrackedFiles.size() != 0) {
-    cout << "\nNew files to be added are:";
+    cout << "\nUntracked files:\n";
     for (string file : untrackedFiles) {
       cout << "\n\t\033[1;32m" << file.substr(final.length()) << "\033[0m";
     }
+    cout << endl;
   } else {
     cout << "\nNo untracked files in the working directory";
   }
   cout << endl;
+
+  cout << "use .fimignore to add the list of files to be ignored" << endl;
 }
 
 static void init() {
   char fullPath[PATH_MAX];
-  realpath(root.c_str(), fullPath);
+  realpath(ROOT.c_str(), fullPath);
   createDirectory(fullPath);
-  root = fullPath;
+  ROOT = fullPath;
   print("Initialized empty fim repository!\n", INFO);
 }
 
@@ -327,7 +374,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  bool exists = directoryExists(root.c_str());
+  bool exists = directoryExists(ROOT.c_str());
 
   if (strcmp(argv[1], "init") == 0) {
 
